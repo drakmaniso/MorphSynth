@@ -12,19 +12,17 @@ function MorphSynth:__init ()
 
     self.instrument = renoise.song().selected_instrument
 
-    self:load_parameters ()
+    local e = self:load_parameters ()
 
-    self.window = MorphSynthWindow (self)
+    if not e then
 
-    self.window:show_dialog ()
+        self.window = MorphSynthWindow (self)
+
+        self.window:show_dialog ()
+
+    end
 
 end
-
-
-----------------------------------------------------------------------------------------------------
-
-
-local default_waveform = { operator = "Sine", amplitude = 100, shape = 0, phase = 0, inverted = false, transpose = 0, finetune = 0, sample_and_hold = 0, ring_modulation = 0, frequency_modulation = 0 }
 
 
 
@@ -112,7 +110,8 @@ function MorphSynth:generate_one_sample (note, range_start, range_end, voice_ind
 
     self:update_positions (voice.carrier, period)
     self:update_positions (voice.ring_modulator, period)
-    self:update_positions (voice.frequency_modulator, period)
+    self:update_positions (voice.frequency_modulator_1, period)
+    self:update_positions (voice.frequency_modulator_2, period)
 
     local nb_frames = math.floor (voice.carrier.waveforms[#voice.carrier.waveforms].position / period + 0.5) * period
     if nb_frames == 0 then
@@ -125,16 +124,16 @@ function MorphSynth:generate_one_sample (note, range_start, range_end, voice_ind
     end
 
     local ring_modulator_length = voice.ring_modulator.waveforms[#voice.ring_modulator.waveforms].position
-    local frequency_modulator_length = voice.frequency_modulator.waveforms[#voice.frequency_modulator.waveforms].position
 
     WaveFunctions.initialize_random_seed (voice.seed * note * 127)
 
     local phase = 0
     local rm_phase = 0
-    local fm_phase = 0
+    local fm1_phase = 0
+    local fm2_phase = 0
     for i = 1, #samples do
 
-        -- Find the current segment for the carrier, ring modulator and FM modulator
+        -- Find the current segment for the carrier, ring modulator and FM modulators
 
         local index = 0
         repeat
@@ -142,61 +141,76 @@ function MorphSynth:generate_one_sample (note, range_start, range_end, voice_ind
         until index == #voice.carrier.waveforms
             or ((i >= voice.carrier.waveforms[index].position) and (i <= voice.carrier.waveforms[index + 1].position))
 
-        --~ local full_cycles = math.floor (i / ring_modulator_length) * ring_modulator_length
         local rm_index = 0
         repeat
             rm_index = rm_index + 1
         until rm_index == #voice.ring_modulator.waveforms
-            --~ or ((i - full_cycles >= voice.ring_modulator.waveforms[rm_index].position) and (i - full_cycles <= voice.ring_modulator.waveforms[rm_index + 1].position))
             or ((i >= voice.ring_modulator.waveforms[rm_index].position) and (i <= voice.ring_modulator.waveforms[rm_index + 1].position))
 
-        --~ full_cycles = math.floor (i / frequency_modulator_length) * frequency_modulator_length
-        local fm_index = 0
+        local fm1_index = 0
         repeat
-            fm_index = fm_index + 1
-        until fm_index == #voice.frequency_modulator.waveforms
-            --~ or ((i - full_cycles >= voice.frequency_modulator.waveforms[fm_index].position) and (i - full_cycles <= voice.frequency_modulator.waveforms[fm_index + 1].position))
-            or ((i >= voice.frequency_modulator.waveforms[fm_index].position) and (i <= voice.frequency_modulator.waveforms[fm_index + 1].position))
+            fm1_index = fm1_index + 1
+        until fm1_index == #voice.frequency_modulator_1.waveforms
+            or ((i >= voice.frequency_modulator_1.waveforms[fm1_index].position) and (i <= voice.frequency_modulator_1.waveforms[fm1_index + 1].position))
+
+        local fm2_index = 0
+        repeat
+            fm2_index = fm2_index + 1
+        until fm2_index == #voice.frequency_modulator_2.waveforms
+            or ((i >= voice.frequency_modulator_2.waveforms[fm2_index].position) and (i <= voice.frequency_modulator_2.waveforms[fm2_index + 1].position))
 
         --
 
-        local ca1 = voice.carrier.waveforms[index]
+        local ca_1 = voice.carrier.waveforms[index]
         local segment_position = i - voice.carrier.waveforms[index].position
-        local segment_length, scale, ca2, rm2, fm2
+        local segment_length, scale, ca_2, rm_2, fm1_2
         if index < #voice.carrier.waveforms then
             segment_length = voice.carrier.waveforms[index + 1].position - voice.carrier.waveforms[index].position
             scale = voice.carrier.durations[index].scale
-            ca2 = voice.carrier.waveforms[index + 1]
+            ca_2 = voice.carrier.waveforms[index + 1]
         else
             segment_length = #samples - voice.carrier.waveforms[index].position
             scale = 0
-            ca2 = voice.carrier.waveforms[#voice.carrier.waveforms]
+            ca_2 = voice.carrier.waveforms[#voice.carrier.waveforms]
         end
 
-        local rm1 = voice.ring_modulator.waveforms[rm_index]
+        local rm_1 = voice.ring_modulator.waveforms[rm_index]
         local rm_segment_position = i - voice.ring_modulator.waveforms[rm_index].position
-        local rm_segment_length, rm_scale, rm2
+        local rm_segment_length, rm_scale, rm_2
         if rm_index < #voice.ring_modulator.waveforms then
             rm_segment_length = voice.ring_modulator.waveforms[rm_index + 1].position - voice.ring_modulator.waveforms[rm_index].position
             rm_scale = voice.ring_modulator.durations[rm_index].scale
-            rm2 = voice.ring_modulator.waveforms[rm_index + 1]
+            rm_2 = voice.ring_modulator.waveforms[rm_index + 1]
         else
             rm_segment_length = #samples - voice.ring_modulator.waveforms[rm_index].position
             rm_scale = 0
-            rm2 = voice.ring_modulator.waveforms[#voice.ring_modulator.waveforms]
+            rm_2 = voice.ring_modulator.waveforms[#voice.ring_modulator.waveforms]
         end
 
-        local fm1 = voice.frequency_modulator.waveforms[fm_index]
-        local fm_segment_position = i - voice.frequency_modulator.waveforms[fm_index].position
-        local fm_segment_length, fm_scale, fm2
-        if fm_index < #voice.frequency_modulator.waveforms then
-            fm_segment_length = voice.frequency_modulator.waveforms[fm_index + 1].position - voice.frequency_modulator.waveforms[fm_index].position
-            fm_scale = voice.frequency_modulator.durations[fm_index].scale
-            fm2 = voice.frequency_modulator.waveforms[fm_index + 1]
+        local fm1_1 = voice.frequency_modulator_1.waveforms[fm1_index]
+        local fm1_segment_position = i - voice.frequency_modulator_1.waveforms[fm1_index].position
+        local fm1_segment_length, fm1_scale, fm1_2
+        if fm1_index < #voice.frequency_modulator_1.waveforms then
+            fm1_segment_length = voice.frequency_modulator_1.waveforms[fm1_index + 1].position - voice.frequency_modulator_1.waveforms[fm1_index].position
+            fm1_scale = voice.frequency_modulator_1.durations[fm1_index].scale
+            fm1_2 = voice.frequency_modulator_1.waveforms[fm1_index + 1]
         else
-            fm_segment_length = #samples - voice.frequency_modulator.waveforms[fm_index].position
-            fm_scale = 0
-            fm2 = voice.frequency_modulator.waveforms[#voice.frequency_modulator.waveforms]
+            fm1_segment_length = #samples - voice.frequency_modulator_1.waveforms[fm1_index].position
+            fm1_scale = 0
+            fm1_2 = voice.frequency_modulator_1.waveforms[#voice.frequency_modulator_1.waveforms]
+        end
+
+        local fm2_1 = voice.frequency_modulator_2.waveforms[fm2_index]
+        local fm2_segment_position = i - voice.frequency_modulator_2.waveforms[fm2_index].position
+        local fm2_segment_length, fm2_scale, fm2_2
+        if fm2_index < #voice.frequency_modulator_2.waveforms then
+            fm2_segment_length = voice.frequency_modulator_2.waveforms[fm2_index + 1].position - voice.frequency_modulator_2.waveforms[fm2_index].position
+            fm2_scale = voice.frequency_modulator_2.durations[fm2_index].scale
+            fm2_2 = voice.frequency_modulator_2.waveforms[fm2_index + 1]
+        else
+            fm2_segment_length = #samples - voice.frequency_modulator_2.waveforms[fm2_index].position
+            fm2_scale = 0
+            fm2_2 = voice.frequency_modulator_2.waveforms[#voice.frequency_modulator_2.waveforms]
         end
 
         --
@@ -205,22 +219,35 @@ function MorphSynth:generate_one_sample (note, range_start, range_end, voice_ind
 
         local morph_position = self:morph_position (segment_position, segment_length, scale)
         local rm_morph_position = self:morph_position (rm_segment_position, rm_segment_length, rm_scale)
-        local fm_morph_position = self:morph_position (fm_segment_position, fm_segment_length, fm_scale)
+        local fm1_morph_position = self:morph_position (fm1_segment_position, fm1_segment_length, fm1_scale)
+        local fm2_morph_position = self:morph_position (fm2_segment_position, fm2_segment_length, fm2_scale)
 
-        local ring_modulation = (1 - rm_morph_position) * ca1.ring_modulation/100 + rm_morph_position * ca2.ring_modulation/100
+        local ring_modulation = (1 - rm_morph_position) * rm_1.amount/100 + rm_morph_position * rm_2.amount/100
 
-        local sample_without_modulation = self:morph (morph_position, ca1, ca2, phase, period)
+        local sample_without_modulation = self:morph (morph_position, ca_1, ca_2, phase, period)
         samples[i] = (1 - ring_modulation) * sample_without_modulation
-                + ring_modulation * sample_without_modulation * self:morph (rm_morph_position, rm1, rm2, rm_phase, period)
+                + ring_modulation * sample_without_modulation * self:morph (rm_morph_position, rm_1, rm_2, rm_phase, period)
 
-        local fm_frequency = self:frequency (fm_morph_position, fm1, fm2, voice_note)
-        local deviation = self:morph (fm_morph_position, fm1, fm2, fm_phase, period) * fm_frequency
+        local fm1_frequency = self:frequency (fm1_morph_position, fm1_1, fm1_2, voice_note)
+        local fm1_deviation = self:morph (fm1_morph_position, fm1_1, fm1_2, fm1_phase, period) * fm1_frequency
 
-        local frequency_modulation = (1 - fm_morph_position) * ca1.frequency_modulation/100 + fm_morph_position * ca2.frequency_modulation/100
-        phase = phase + self:frequency (morph_position, ca1, ca2, voice_note) / sample_rate + frequency_modulation * deviation / sample_rate
+        local fm2_frequency = self:frequency (fm2_morph_position, fm2_1, fm2_2, voice_note)
+        local fm2_deviation = self:morph (fm2_morph_position, fm2_1, fm2_2, fm2_phase, period) * fm2_frequency
 
-        rm_phase = rm_phase + self:frequency (fm_morph_position, rm1, rm2, voice_note) / sample_rate
-        fm_phase = fm_phase + fm_frequency / sample_rate
+        local frequency_modulation_1 = (1 - fm1_morph_position) * fm1_1.amount + fm1_morph_position * fm1_2.amount
+        phase = phase + self:frequency (morph_position, ca_1, ca_2, voice_note) / sample_rate
+                      + frequency_modulation_1 * fm1_deviation / sample_rate
+        local frequency_modulation_2 = (1 - fm2_morph_position) * fm2_1.amount + fm2_morph_position * fm2_2.amount
+        if voice.fm_algorithm == "Parallel" then
+            phase = phase + frequency_modulation_2 * fm2_deviation / sample_rate
+        end
+
+        rm_phase = rm_phase + self:frequency (fm1_morph_position, rm_1, rm_2, voice_note) / sample_rate
+        fm1_phase = fm1_phase + fm1_frequency / sample_rate
+        if voice.fm_algorithm == "Serie" then
+            fm1_phase = fm1_phase + frequency_modulation_2 * fm2_deviation / sample_rate
+        end
+        fm2_phase = fm2_phase + fm2_frequency / sample_rate
 
     end
 
@@ -303,10 +330,10 @@ function MorphSynth:morph_position (position, length, scale)
 
     -- The "morphing" can be linear, logarithmic or exponential
     if scale > 0 then
-        scale = 10 ^ (scale / 50)
+        scale = 10 ^ (scale / 25)
         p = math.log ((scale - 1) * p + 1) / math.log (scale)
     elseif scale < 0 then
-        scale = 10 ^ (-scale / 50)
+        scale = 10 ^ (-scale / 25)
         p = (scale ^ p - 1) / (scale - 1)
     end
 
@@ -323,7 +350,10 @@ function MorphSynth:morph (p, w1, w2, phase, period)
     local sample
 
     local shape = ((1- p) * w1.shape + p * w2.shape) / 100
-    local amplitude = ((1- p) * w1.amplitude + p * w2.amplitude) / 100
+    local amplitude = 1
+    if w1.amplitude and w2.amplitude then
+        amplitude = ((1- p) * w1.amplitude + p * w2.amplitude) / 100
+    end
     local phase_offset = ((1- p) * w1.phase + p * w2.phase) / 360
     phase = (phase + phase_offset) % 1
 
@@ -341,6 +371,7 @@ function MorphSynth:morph (p, w1, w2, phase, period)
     local inv2 = 1
     if w2.inverted then inv2 = -1 end
     sample = amplitude * ((1 - p) * inv1 * func1 (phase, shape) + p * inv2 * func2 (phase, shape))
+    --~ sample = amplitude * (((0.5+0.5*math.cos(p*math.pi))^0.5-0.21) * inv1 * func1 (phase, shape) + ((0.5-0.5*math.cos(p*math.pi))^0.5-0.21) * inv2 * func2 (phase, shape))
 
     return sample
 
@@ -352,15 +383,39 @@ end
 
 function MorphSynth:frequency (p, w1, w2, voice_note)
 
-    local note1 = voice_note + w1.transpose + w1.finetune/100
-    local note2 = voice_note + w2.transpose + w2.finetune/100
-    local morphed_note
+    local note1 = voice_note + w1.finetune/100
+    if w1.transpose then note1 = note1 + w1.transpose end
+    local ratio1 = 1
+    if w1.ratio_dividend and w1.ratio_divisor then
+        ratio1 = w1.ratio_dividend / w1.ratio_divisor
+    end
+    local offset1 = 0
+    if w1.frequency_offset then offset1 = w1.frequency_offset end
+
+    local note2 = voice_note + w2.finetune/100
+    if w2.transpose then note2 = note2 + w2.transpose end
+    local ratio2 = 1
+    if w2.ratio_dividend and w2.ratio_divisor then
+        ratio2 = w2.ratio_dividend / w2.ratio_divisor
+    end
+    local offset2 = 0
+    if w2.frequency_offset then offset1 = w2.frequency_offset end
+
+    local morphed_note, ratio, offset
     if note1 ~= note2 then
         morphed_note = (1 - p) * note1 + p * note2
     else
         morphed_note = note1
     end
-    return frequency_of_renoise_note (morphed_note)
+    if w1 ~= w2 then
+        ratio = (1 - p) * ratio1 + p * ratio2
+        offset = (1 - p) * offset1 + p * offset2
+    else
+        ratio = ratio1
+        offset = offset1
+    end
+
+    return frequency_of_renoise_note (morphed_note) * ratio + offset
 
 end
 
@@ -371,7 +426,7 @@ end
 
 function MorphSynth:initialize_parameters ()
 
-    self.version = 2
+    self.version = 3
 
     self.sample_rate = 44100
     self.bit_depth = 16
@@ -383,6 +438,7 @@ function MorphSynth:initialize_parameters ()
     self.voices = { {}, {}, {}, {}, {}, {}, {}, {}, }
 
     local default_duration = { value = 0, unit = "ms", scale = 0 }
+    local default_waveform = { operator = "Sine", amplitude = 100, shape = 0, phase = 0, inverted = false, transpose = 0, finetune = 0, sample_and_hold = 0, amount = 0 }
 
     for i = 1, 8 do
 
@@ -392,6 +448,7 @@ function MorphSynth:initialize_parameters ()
         self.voices[i].finetune = 0
         self.voices[i].seed = 0
         self.voices[i].new_note_action = "Cut"
+        self.voices[i].fm_algorithm = "Parallel"
         self.voices[i].autofade = false
         self.voices[i].envelopes = true
 
@@ -401,7 +458,8 @@ function MorphSynth:initialize_parameters ()
 
         self.voices[i].carrier = { durations={}, waveforms={} }
         self.voices[i].ring_modulator = { durations={default_duration}, waveforms={default_waveform} }
-        self.voices[i].frequency_modulator = { durations={default_duration}, waveforms={default_waveform} }
+        self.voices[i].frequency_modulator_1 = { durations={default_duration}, waveforms={default_waveform} }
+        self.voices[i].frequency_modulator_2 = { durations={default_duration}, waveforms={default_waveform} }
 
     end
 
@@ -461,6 +519,7 @@ function MorphSynth:save_parameters ()
         name = name .. "finetune=" .. voice.finetune .. ","
         name = name .. "seed=" .. voice.seed .. ","
         name = name .. 'new_note_action="' .. voice.new_note_action .. '",'
+        name = name .. 'fm_algorithm="' .. voice.fm_algorithm .. '",'
         if voice.autofade then
             name = name .. "autofade=true,"
         else
@@ -503,8 +562,9 @@ function MorphSynth:save_parameters ()
             name = name .. "transpose=" .. voice.carrier.waveforms[i].transpose .. ","
             name = name .. "finetune=" .. voice.carrier.waveforms[i].finetune .. ","
             name = name .. "sample_and_hold=" .. voice.carrier.waveforms[i].sample_and_hold .. ","
-            name = name .. "ring_modulation=" .. voice.carrier.waveforms[i].ring_modulation .. ","
-            name = name .. "frequency_modulation=" .. voice.carrier.waveforms[i].frequency_modulation .. ","
+            --~ name = name .. "ring_modulation=" .. voice.carrier.waveforms[i].ring_modulation .. ","
+            --~ name = name .. "frequency_modulation_1=" .. voice.carrier.waveforms[i].frequency_modulation_1 .. ","
+            --~ name = name .. "frequency_modulation_2=" .. voice.carrier.waveforms[i].frequency_modulation_2 .. ","
             name = name .. "},"
         end
         name = name .. "},"
@@ -527,7 +587,6 @@ function MorphSynth:save_parameters ()
         for i = 1, #voice.ring_modulator.waveforms do
             name = name .. "{"
             name = name .. 'operator="' .. voice.ring_modulator.waveforms[i].operator .. '",'
-            name = name .. "amplitude=" .. voice.ring_modulator.waveforms[i].amplitude .. ","
             name = name .. "shape=" .. voice.ring_modulator.waveforms[i].shape .. ","
             name = name .. "phase=" .. voice.ring_modulator.waveforms[i].phase .. ","
             if voice.ring_modulator.waveforms[i].inverted then
@@ -538,44 +597,83 @@ function MorphSynth:save_parameters ()
             name = name .. "transpose=" .. voice.ring_modulator.waveforms[i].transpose .. ","
             name = name .. "finetune=" .. voice.ring_modulator.waveforms[i].finetune .. ","
             name = name .. "sample_and_hold=" .. voice.ring_modulator.waveforms[i].sample_and_hold .. ","
+            --~ name = name .. "frequency_offset=" .. (voice.ring_modulator.waveforms[i].frequency_offset and voice.ring_modulator.waveforms[i].frequency_offset or 0) .. ","
+            name = name .. "amount=" .. voice.ring_modulator.waveforms[i].amount .. ","
             name = name .. "},"
         end
         name = name .. "},"
 
         name = name .. "}," -- ring_modulator
 
-        name = name .. "frequency_modulator={"
+        name = name .. "frequency_modulator_1={"
 
         name = name .. "durations={"
-        for i = 1, #voice.frequency_modulator.durations do
+        for i = 1, #voice.frequency_modulator_1.durations do
             name = name .. "{"
-            name = name .. "value=" .. voice.frequency_modulator.durations[i].value .. ","
-            name = name .. 'unit="' .. voice.frequency_modulator.durations[i].unit .. '",'
-            name = name .. "scale=" .. voice.frequency_modulator.durations[i].scale
+            name = name .. "value=" .. voice.frequency_modulator_1.durations[i].value .. ","
+            name = name .. 'unit="' .. voice.frequency_modulator_1.durations[i].unit .. '",'
+            name = name .. "scale=" .. voice.frequency_modulator_1.durations[i].scale
             name = name .. "},"
         end
         name = name .. "},"
 
         name = name .. "waveforms={"
-        for i = 1, #voice.frequency_modulator.waveforms do
+        for i = 1, #voice.frequency_modulator_1.waveforms do
             name = name .. "{"
-            name = name .. 'operator="' .. voice.frequency_modulator.waveforms[i].operator .. '",'
-            name = name .. "amplitude=" .. voice.frequency_modulator.waveforms[i].amplitude .. ","
-            name = name .. "shape=" .. voice.frequency_modulator.waveforms[i].shape .. ","
-            name = name .. "phase=" .. voice.frequency_modulator.waveforms[i].phase .. ","
-            if voice.frequency_modulator.waveforms[i].inverted then
+            name = name .. 'operator="' .. voice.frequency_modulator_1.waveforms[i].operator .. '",'
+            name = name .. "shape=" .. voice.frequency_modulator_1.waveforms[i].shape .. ","
+            name = name .. "phase=" .. voice.frequency_modulator_1.waveforms[i].phase .. ","
+            if voice.frequency_modulator_1.waveforms[i].inverted then
                 name = name .. "inverted=true,"
             else
                 name = name .. "inverted=false,"
             end
-            name = name .. "transpose=" .. voice.frequency_modulator.waveforms[i].transpose .. ","
-            name = name .. "finetune=" .. voice.frequency_modulator.waveforms[i].finetune .. ","
-            name = name .. "sample_and_hold=" .. voice.frequency_modulator.waveforms[i].sample_and_hold .. ","
+            name = name .. "sample_and_hold=" .. voice.frequency_modulator_1.waveforms[i].sample_and_hold .. ","
+            name = name .. "ratio_dividend=" .. (voice.frequency_modulator_1.waveforms[i].ratio_dividend and voice.frequency_modulator_1.waveforms[i].ratio_dividend or 1) .. ","
+            name = name .. "ratio_divisor=" .. (voice.frequency_modulator_1.waveforms[i].ratio_divisor and voice.frequency_modulator_1.waveforms[i].ratio_divisor or 1) .. ","
+            name = name .. "finetune=" .. voice.frequency_modulator_1.waveforms[i].finetune .. ","
+            --~ name = name .. "frequency_offset=" .. (voice.frequency_modulator_1.waveforms[i].frequency_offset and voice.frequency_modulator_1.waveforms[i].frequency_offset or 0) .. ","
+            name = name .. "amount=" .. voice.frequency_modulator_1.waveforms[i].amount .. ","
             name = name .. "},"
         end
         name = name .. "},"
 
-        name = name .. "}," -- frequency_modulator
+        name = name .. "}," -- frequency_modulator_1
+
+        name = name .. "frequency_modulator_2={"
+
+        name = name .. "durations={"
+        for i = 1, #voice.frequency_modulator_2.durations do
+            name = name .. "{"
+            name = name .. "value=" .. voice.frequency_modulator_2.durations[i].value .. ","
+            name = name .. 'unit="' .. voice.frequency_modulator_2.durations[i].unit .. '",'
+            name = name .. "scale=" .. voice.frequency_modulator_2.durations[i].scale
+            name = name .. "},"
+        end
+        name = name .. "},"
+
+        name = name .. "waveforms={"
+        for i = 1, #voice.frequency_modulator_2.waveforms do
+            name = name .. "{"
+            name = name .. 'operator="' .. voice.frequency_modulator_2.waveforms[i].operator .. '",'
+            name = name .. "shape=" .. voice.frequency_modulator_2.waveforms[i].shape .. ","
+            name = name .. "phase=" .. voice.frequency_modulator_2.waveforms[i].phase .. ","
+            if voice.frequency_modulator_2.waveforms[i].inverted then
+                name = name .. "inverted=true,"
+            else
+                name = name .. "inverted=false,"
+            end
+            name = name .. "sample_and_hold=" .. voice.frequency_modulator_2.waveforms[i].sample_and_hold .. ","
+            name = name .. "finetune=" .. voice.frequency_modulator_2.waveforms[i].finetune .. ","
+            name = name .. "ratio_dividend=" .. (voice.frequency_modulator_2.waveforms[i].ratio_dividend and voice.frequency_modulator_2.waveforms[i].ratio_dividend or 1) .. ","
+            name = name .. "ratio_divisor=" .. (voice.frequency_modulator_2.waveforms[i].ratio_divisor and voice.frequency_modulator_2.waveforms[i].ratio_divisor or 1) .. ","
+            --~ name = name .. "frequency_offset=" .. (voice.frequency_modulator_2.waveforms[i].frequency_offset and voice.frequency_modulator_2.waveforms[i].frequency_offset or 0) .. ","
+            name = name .. "amount=" .. voice.frequency_modulator_2.waveforms[i].amount .. ","
+            name = name .. "},"
+        end
+        name = name .. "},"
+
+        name = name .. "}," -- frequency_modulator_2
 
         name = name .. "},"
 
@@ -619,20 +717,14 @@ function MorphSynth:load_parameters ()
     self.first_note = data.first_note
     self.last_note = data.last_note
     self.keyzones_step = data.keyzones_step
---~
-    --~ self.volume = data.volume
-    --~ self.panning = data.panning
-    --~ self.transpose = data.transpose
-    --~ self.finetune = data.finetune
-    --~ self.seed = data.seed
-    --~ self.new_note_action = data.new_note_action
-    --~ self.autofade = data.autofade
-    --~ self.envelopes = data.envelopes
---~
-    --~ self.loop_mode = data.loop_mode
-    --~ self.loop_from = data.loop_from
-    --~ self.loop_to = data.loop_to
 
     self.voices = data.voices
+
+    if self.version < 3 then
+        renoise.app():show_custom_prompt ("WARNING", renoise.ViewBuilder():text{text="This instrument was created with a previous, incompatible version\nof MorphSynth. Some parameters cannot be retrieved."}, { "Ok" })
+        return true
+    end
+
+    return false
 
 end

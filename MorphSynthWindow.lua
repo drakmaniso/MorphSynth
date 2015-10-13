@@ -70,7 +70,15 @@ MorphSynthWindow.bit_depth_values = { 16, 24, 32, }
 MorphSynthWindow.nb_channels_names = { "Mono", "Stereo", }
 MorphSynthWindow.nb_channels_values = { 1, 2, }
 
+MorphSynthWindow.section_names = { "Carrier", "FM Modulator 1", "FM Modulator 2", "Ring Modulator", }
+MorphSynthWindow.section_carrier = 1
+MorphSynthWindow.section_fm1 = 2
+MorphSynthWindow.section_fm2 = 3
+MorphSynthWindow.section_ring = 4
+
 MorphSynthWindow.nna_names = { "Cut", "Note Off", "Continue" }
+
+MorphSynthWindow.fm_algorithm_names = { "Parallel", "Serie" }
 
 MorphSynthWindow.durations_unit_names = { "ms", "s", "osc" }
 
@@ -111,6 +119,7 @@ function MorphSynthWindow:update_parameters (voice_index, voice_section_index)
     voice.finetune = views.finetune.value
     voice.seed = views.seed.value
     voice.new_note_action = MorphSynthWindow.nna_names[views.new_note_action.value]
+    voice.fm_algorithm = MorphSynthWindow.fm_algorithm_names[views.fm_algorithm.value]
     voice.autofade = views.autofade.value == 2
     voice.envelopes = views.envelopes.value
 
@@ -118,17 +127,19 @@ function MorphSynthWindow:update_parameters (voice_index, voice_section_index)
     voice.loop_from = views.loop_from.value
     voice.loop_to = views.loop_to.value
 
-    if voice_section_index == 1 then
-        self:update_voice_section_parameters (voice.carrier, false)
-    elseif voice_section_index == 2 then
-        self:update_voice_section_parameters (voice.ring_modulator, true)
-    elseif voice_section_index == 3 then
-        self:update_voice_section_parameters (voice.frequency_modulator, true)
+    if voice_section_index == MorphSynthWindow.section_carrier then
+        self:update_voice_section_parameters (voice.carrier, voice_section_index)
+    elseif voice_section_index == MorphSynthWindow.section_fm1 then
+        self:update_voice_section_parameters (voice.frequency_modulator_1, voice_section_index)
+    elseif voice_section_index == MorphSynthWindow.section_fm2 then
+        self:update_voice_section_parameters (voice.frequency_modulator_2, voice_section_index)
+    elseif voice_section_index == MorphSynthWindow.section_ring then
+        self:update_voice_section_parameters (voice.ring_modulator, voice_section_index)
     end
 
 end
 
-function MorphSynthWindow:update_voice_section_parameters (section, is_modulator)
+function MorphSynthWindow:update_voice_section_parameters (section, section_index)
 
     local views = self.vb.views
 
@@ -155,16 +166,27 @@ function MorphSynthWindow:update_voice_section_parameters (section, is_modulator
     for i = 1, self.nb_waveforms do
         local w = { }
         w.operator = WaveFunctions.names[views["function_" .. i].value]
-        w.amplitude = math.floor (views["amplitude_" .. i].value + 0.5)
         w.shape = math.floor (views["shape_" .. i].value + 0.5)
         w.phase = math.floor (views["phase_" .. i].value + 0.5)
         w.inverted = views["inverted_" .. i].value
-        w.transpose = math.floor (views["transpose_" .. i].value + 0.5)
+        if (section_index == MorphSynthWindow.section_carrier) or  (section_index == MorphSynthWindow.section_ring) then
+            w.transpose = math.floor (views["transpose_" .. i].value + 0.5)
+        else
+            w.ratio_dividend = views["ratio_dividend_" .. i].value
+            w.ratio_divisor = views["ratio_divisor_" .. i].value
+        end
         w.finetune = math.floor (views["finetune_" .. i].value + 0.5)
         w.sample_and_hold = math.floor (views["sample_and_hold_" .. i].value + 0.5)
-        if not is_modulator then
-            w.ring_modulation = views["ringmod_" .. i].value
-            w.frequency_modulation = views["freqmod_" .. i].value
+        --~ if is_modulator then
+            --~ w.frequency_offset = views["frequency_offset_" .. i].value
+        --~ end
+        if section_index == MorphSynthWindow.section_carrier then
+            w.amplitude = math.floor (views["amplitude_" .. i].value + 0.5)
+        elseif section_index == MorphSynthWindow.section_ring then
+            w.amount = math.floor (views["rm_amount_" .. i].value + 0.5)
+        else
+            local v = from_exp_display (views["fm_amount_" .. i].value, 13.1)
+            w.amount = math.floor (v * 10 + 0.5) / 10
         end
         section.waveforms[i] = w
     end
@@ -189,15 +211,16 @@ function MorphSynthWindow:update_gui ()
     views.seed.value = voice.seed
     views.seed_rotary.value = voice.seed
     views.new_note_action.value = 1
-    if voice.autofade then
-        views.autofade.value = 2
-    else
-        views.autofade.value = 1
-    end
     for i = 1, #MorphSynthWindow.nna_names do
         if MorphSynthWindow.nna_names[i] == voice.new_note_action then
             views.new_note_action.value = i
         end
+    end
+    views.fm_algorithm.value = (voice.fm_algorithm == "Parallel") and 1 or 2
+    if voice.autofade then
+        views.autofade.value = 2
+    else
+        views.autofade.value = 1
     end
     views.envelopes.value = voice.envelopes
 
@@ -212,34 +235,44 @@ function MorphSynthWindow:update_gui ()
     end
 
     ---TODO: factorize
-    if views.voice_section.value == 1 then
+    if views.voice_section.value == MorphSynthWindow.section_carrier then
         if #voice.carrier.waveforms > 0 then
             self.nb_waveforms = 1
-            self:add_waveform (voice.carrier.waveforms[self.nb_waveforms], false)
+            self:add_waveform (voice.carrier.waveforms[self.nb_waveforms], views.voice_section.value)
             for i = 2, #voice.carrier.waveforms do
                 self:add_duration (voice.carrier.durations[self.nb_waveforms])
                 self.nb_waveforms = self.nb_waveforms + 1
-                self:add_waveform (voice.carrier.waveforms[self.nb_waveforms], false)
+                self:add_waveform (voice.carrier.waveforms[self.nb_waveforms], views.voice_section.value)
             end
         end
-    elseif views.voice_section.value == 2 then -- Ring Modulator
+    elseif views.voice_section.value == MorphSynthWindow.section_fm1 then
+        if #voice.frequency_modulator_1.waveforms > 0 then
+            self.nb_waveforms = 1
+            self:add_waveform (voice.frequency_modulator_1.waveforms[self.nb_waveforms], views.voice_section.value)
+            for i = 2, #voice.frequency_modulator_1.waveforms do
+                self:add_duration (voice.frequency_modulator_1.durations[self.nb_waveforms])
+                self.nb_waveforms = self.nb_waveforms + 1
+                self:add_waveform (voice.frequency_modulator_1.waveforms[self.nb_waveforms], views.voice_section.value)
+            end
+        end
+    elseif views.voice_section.value == MorphSynthWindow.section_fm2 then
+        if #voice.frequency_modulator_2.waveforms > 0 then
+            self.nb_waveforms = 1
+            self:add_waveform (voice.frequency_modulator_2.waveforms[self.nb_waveforms], views.voice_section.value)
+            for i = 2, #voice.frequency_modulator_2.waveforms do
+                self:add_duration (voice.frequency_modulator_2.durations[self.nb_waveforms])
+                self.nb_waveforms = self.nb_waveforms + 1
+                self:add_waveform (voice.frequency_modulator_2.waveforms[self.nb_waveforms], views.voice_section.value)
+            end
+        end
+    elseif views.voice_section.value == MorphSynthWindow.section_ring then
         if #voice.ring_modulator.waveforms > 0 then
             self.nb_waveforms = 1
-            self:add_waveform (voice.ring_modulator.waveforms[self.nb_waveforms], true)
+            self:add_waveform (voice.ring_modulator.waveforms[self.nb_waveforms], views.voice_section.value)
             for i = 2, #voice.ring_modulator.waveforms do
                 self:add_duration (voice.ring_modulator.durations[self.nb_waveforms])
                 self.nb_waveforms = self.nb_waveforms + 1
-                self:add_waveform (voice.ring_modulator.waveforms[self.nb_waveforms], true)
-            end
-        end
-    elseif views.voice_section.value == 3 then -- Frequency Modulator
-        if #voice.frequency_modulator.waveforms > 0 then
-            self.nb_waveforms = 1
-            self:add_waveform (voice.frequency_modulator.waveforms[self.nb_waveforms], true)
-            for i = 2, #voice.frequency_modulator.waveforms do
-                self:add_duration (voice.frequency_modulator.durations[self.nb_waveforms])
-                self.nb_waveforms = self.nb_waveforms + 1
-                self:add_waveform (voice.frequency_modulator.waveforms[self.nb_waveforms], true)
+                self:add_waveform (voice.ring_modulator.waveforms[self.nb_waveforms], views.voice_section.value)
             end
         end
     end
@@ -563,10 +596,29 @@ function MorphSynthWindow:gui ()
 
                 vb:vertical_aligner
                 {
+                    mode = "top",
+                    vb:text { width = 40, text = "FM Algorithm", font="bold", },
+                    vb:vertical_aligner
+                    {
+                        mode = "distribute",
+                        vb:chooser
+                        {
+                            id = "fm_algorithm",
+                            width = 40,
+                            items = MorphSynthWindow.fm_algorithm_names,
+                            value = 1,
+                            tooltip = "Controls how the signal is modulated:\nParallel: FM1->Carrier and FM2->Carrier\nSerie: FM2->FM1->Carrier",
+                        },
+                        vb:text { text = " " },
+                    },
+                },
+
+                vb:vertical_aligner
+                {
                     mode = "distribute",
                     vb:row
                     {
-                        vb:text { width = 40, text = "NNA", },
+                        vb:text { width = 45, text = "NNA ", font = "bold", align = "right", },
                         vb:popup
                         {
                             id = "new_note_action",
@@ -575,7 +627,7 @@ function MorphSynthWindow:gui ()
                     },
                     vb:row
                     {
-                        vb:text { width = 40, text = "Attack", },
+                        vb:text { width = 45, text = "Attack ", font = "bold", align = "right", },
                         vb:popup
                         {
                             id = "autofade",
@@ -605,13 +657,17 @@ function MorphSynthWindow:gui ()
             id = "voice_section",
             width = "100%", -- width = 8 * 40,
             height = 25,
-            items = { "Carrier", "Ring Modulator", "FM Modulator", },
+            items = MorphSynthWindow.section_names,
             value = 1,
             notifier = function (index)
                 self:update_parameters (vb.views.voice.value, self.previous_section)
                 self:update_gui ()
                 self.previous_section = index
-                vb.views.loop_buttons.visible = index == 1
+                vb.views.loop_buttons.visible = index == MorphSynthWindow.section_carrier
+                vb.views.header_amplitude.visible = index == MorphSynthWindow.section_carrier
+                vb.views.header_amount.visible = index ~= MorphSynthWindow.section_carrier
+                vb.views.header_pitch.visible = (index == MorphSynthWindow.section_carrier) or (index == MorphSynthWindow.section_ring)
+                vb.views.header_ratio.visible = (index == MorphSynthWindow.section_fm1) or (index == MorphSynthWindow.section_fm2)
             end,
         },
 
@@ -631,11 +687,13 @@ function MorphSynthWindow:gui ()
                 vb:text { font = "bold", align = "left", text = " ", width = 120, },
                 vb:text { font = "bold", align = "left", text = "Shape", width = 70, },
                 vb:text { font = "bold", align = "left", text = "S & H", width = 70, },
-                vb:text { font = "bold", align = "center", text = "Pitch", width = 70, },
-                vb:column { width = 10 },
                 vb:text { font = "bold", align = "center", text = "Phase", width = 70, },
                 vb:column { width = 10 },
-                vb:text { font = "bold", align = "left", text = "Amplitude", width = 70, },
+                vb:text { id = "header_pitch", font = "bold", align = "center", text = "Pitch", width = 70, },
+                vb:text { id = "header_ratio", visible = false, font = "bold", align = "center", text = "Ratio", width = 130, },
+                vb:column { width = 10 },
+                vb:text { id = "header_amplitude", font = "bold", align = "left", text = "Amplitude", width = 70, },
+                vb:text { id = "header_amount", visible = false, font = "bold", align = "left", text = "Amount", width = 70, },
             },
 
             vb:column
@@ -662,7 +720,7 @@ function MorphSynthWindow:gui ()
                             self:add_duration ({value = 200, unit = "ms", scale = 0})
                         end
                         self.nb_waveforms = self.nb_waveforms + 1
-                        self:add_waveform ({operator="Sine", shape=0, transpose=0, finetune=0, phase=0, inverted=false, sample_and_hold=0, amplitude=100}, vb.views.voice_section.value > 1)
+                        self:add_waveform ({operator="Sine", shape=0, transpose=0, finetune=0, phase=0, inverted=false, sample_and_hold=0, amplitude=100, amount=0}, vb.views.voice_section.value)
                     end,
                 },
                 vb:button
@@ -672,7 +730,7 @@ function MorphSynthWindow:gui ()
                     height = 26,
                     notifier = function ()
                         if self.nb_waveforms == 1 then
-                            if vb.views.voice_section == 1 then
+                            if vb.views.voice_section.value == MorphSynthWindow.section_carrier then
                                 self:remove_waveform ()
                                 self.nb_waveforms = self.nb_waveforms - 1
                             end
@@ -940,7 +998,7 @@ end
 ----------------------------------------------------------------------------------------------------
 
 
-function MorphSynthWindow:add_waveform (w, is_modulator)
+function MorphSynthWindow:add_waveform (w, voice_section)
 
     local vb = self.vb
     local control_spacing = renoise.ViewBuilder.DEFAULT_CONTROL_SPACING
@@ -1068,41 +1126,14 @@ function MorphSynthWindow:add_waveform (w, is_modulator)
             {
                 margin = 0,
                 spacing = 0,
-                mode = "distribute",
-                vb:valuebox
-                {
-                    id = "transpose_" .. n,
-                    min = -60, max = 60,
-                    value = w.transpose,
-                    width = 70,
-                    tonumber = tonumber, ---TODO
-                    tostring = function (v) return string.format("% 2d st", math.floor (v + 0.5)) end,
-                },
-
-                vb:valuebox
-                {
-                    id = "finetune_" .. n,
-                    min = -100, max = 100,
-                    value = w.finetune,
-                    width = 70,
-                    tonumber = tonumber, ---TODO
-                    tostring = function (v) return string.format("% 2d ct", math.floor (v + 0.5)) end,
-                },
-            },
-
-            vb:column { width = 10 },
-
-            vb:vertical_aligner
-            {
-                margin = 0,
-                spacing = 0,
                 mode = "center",
-                vb:valuebox
+                vb:valuefield
                 {
                     id = "phase_" .. n,
                     min = -180, max = 180,
                     value = w.phase,
                     width = 70,
+                    align = "center",
                     tonumber = tonumber, ---TODO
                     tostring = function (v) return string.format("% 4d °", math.floor (v + 0.5)) end,
                 },
@@ -1124,6 +1155,71 @@ function MorphSynthWindow:add_waveform (w, is_modulator)
             {
                 margin = 0,
                 spacing = 0,
+                mode = "distribute",
+
+                vb:valuebox
+                {
+                    visible = (voice_section == MorphSynthWindow.section_carrier) or (voice_section == MorphSynthWindow.section_ring),
+                    id = "transpose_" .. n,
+                    min = -60, max = 60,
+                    value = w.transpose,
+                    width = 70,
+                    tonumber = tonumber, ---TODO
+                    tostring = function (v) return string.format("% 2d st", math.floor (v + 0.5)) end,
+                },
+
+                vb:row
+                {
+                    visible = (voice_section == MorphSynthWindow.section_fm1) or (voice_section == MorphSynthWindow.section_fm2),
+                    vb:valuebox
+                    {
+                        id = "ratio_dividend_" .. n,
+                        min = 1,
+                        max = 10000,
+                        value = w.ratio_dividend and w.ratio_dividend or 1,
+                        width = 60,
+                        tonumber = tonumber,
+                        tostring = function (v) return tostring(v) end,
+                    },
+                    vb:text { text = " / ", align = "right", width = 10, },
+                    vb:valuebox
+                    {
+                        id = "ratio_divisor_" .. n,
+                        min = 1,
+                        max = 10000,
+                        value = w.ratio_divisor and w.ratio_divisor or 1,
+                        width = 60,
+                        tonumber = tonumber,
+                        tostring = function (v) return tostring(v) end,
+                    },
+                },
+
+                vb:row
+                {
+                    vb:text
+                    {
+                        visible = (voice_section == MorphSynthWindow.section_fm1) or (voice_section == MorphSynthWindow.section_fm2),
+                        text = "Detune ",
+                    },
+                    vb:valuebox
+                    {
+                        id = "finetune_" .. n,
+                        min = -100, max = 100,
+                        value = w.finetune,
+                        width = 70,
+                        tonumber = tonumber, ---TODO
+                        tostring = function (v) return string.format("% 2d ct", math.floor (v + 0.5)) end,
+                    },
+                },
+            },
+
+            vb:column { width = 10 },
+
+            vb:vertical_aligner
+            {
+                visible = voice_section == MorphSynthWindow.section_carrier,
+                margin = 0,
+                spacing = 0,
                 mode = "center",
                 vb:rotary
                 {
@@ -1137,6 +1233,7 @@ function MorphSynthWindow:add_waveform (w, is_modulator)
             },
             vb:vertical_aligner
             {
+                visible = voice_section == MorphSynthWindow.section_carrier,
                 margin = 0,
                 spacing = 0,
                 mode = "center",
@@ -1161,105 +1258,121 @@ function MorphSynthWindow:add_waveform (w, is_modulator)
                 },
             },
 
+            vb:vertical_aligner
+            {
+                visible = (voice_section == MorphSynthWindow.section_fm1) or (voice_section == MorphSynthWindow.section_fm2),
+                margin = 0,
+                spacing = 0,
+                mode = "center",
+                vb:rotary
+                {
+                    id = "fm_amount_rotary_" .. n,
+                    min = 0, max = 1,
+                    value = ((voice_section == MorphSynthWindow.section_fm1) or (voice_section == MorphSynthWindow.section_fm2))
+                        and to_exp_display (w.amount, 13.1) or 0,
+                    width = 30,
+                    height = 30,
+                    notifier = function () vb.views["fm_amount_" .. n].value = vb.views["fm_amount_rotary_" .. n].value end,
+                },
+            },
+            vb:vertical_aligner
+            {
+                visible = (voice_section == MorphSynthWindow.section_fm1) or (voice_section == MorphSynthWindow.section_fm2),
+                margin = 0,
+                spacing = 0,
+                mode = "center",
+                vb:valuefield
+                {
+                    id = "fm_amount_" .. n,
+                    min = 0, max = 1,
+                    value = ((voice_section == MorphSynthWindow.section_fm1) or (voice_section == MorphSynthWindow.section_fm2))
+                        and to_exp_display (w.amount, 13.1) or 0,
+                    width = 40,
+                    align = "left",
+                    tonumber = function (v)
+                        local r = tonumber(v)
+                        if r > 13.1 then
+                            r = 13.1
+                        elseif r < 0 then
+                            r = 0
+                        end
+                        r = to_exp_display (r, 13.1)
+                        return r
+                    end,
+                    tostring = function (v)
+                        v = from_exp_display (v, 13.1)
+                        return string.format ("%g", math.floor (v * 10 + 0.5) / 10)
+                        end,
+                    notifier = function () vb.views["fm_amount_rotary_" .. n].value = vb.views["fm_amount_" .. n].value end,
+                },
+            },
+
+            vb:vertical_aligner
+            {
+                visible = voice_section == MorphSynthWindow.section_ring,
+                margin = 0,
+                spacing = 0,
+                mode = "center",
+                vb:rotary
+                {
+                    id = "rm_amount_rotary_" .. n,
+                    min = 0, max = 100,
+                    value = w.amount,
+                    width = 30,
+                    height = 30,
+                    notifier = function () vb.views["rm_amount_" .. n].value = vb.views["rm_amount_rotary_" .. n].value end,
+                },
+            },
+            vb:vertical_aligner
+            {
+                visible = voice_section == MorphSynthWindow.section_ring,
+                margin = 0,
+                spacing = 0,
+                mode = "center",
+                vb:valuefield
+                {
+                    id = "rm_amount_" .. n,
+                    min = 0, max = 100,
+                    value = w.amount,
+                    width = 40,
+                    align = "left",
+                    tonumber = function (v)
+                        local r = tonumber(v)
+                        if r > 100 then
+                            r = 100
+                        elseif r < 0 then
+                            r = 0
+                        end
+                        return r
+                    end,
+                    tostring = function (v) return string.format ("%d %%", math.floor (v + 0.5)) end,
+                    notifier = function () vb.views["rm_amount_rotary_" .. n].value = vb.views["rm_amount_" .. n].value end,
+                },
+            },
+
             vb:column
             {
-                uniform = true,
+                visible = false,
                 vb:row
                 {
-                    visible = not is_modulator,
                     uniform = true,
                     margin = 0,
                     spacing = 0,
-                    vb:text { text = "Ring ", font = "bold", align = "right", width = 40, },
-                    vb:vertical_aligner
-                    {
-                        visible = not is_modulator,
-                        margin = 0,
-                        spacing = 0,
-                        mode = "bottom",
-                        vb:minislider
-                        {
-                            id = "ringmod_rotary_" .. n,
-                            min = 0, max = 100,
-                            value = w.ring_modulation,
-                            width = 70,
-                            --~ height = 30,
-                            notifier = function () vb.views["ringmod_" .. n].value = vb.views["ringmod_rotary_" .. n].value end,
-                        },
-                    },
+                    vb:text { text = "Offset ", font = "bold", align = "right", width = 40, },
                     vb:valuefield
                     {
-                        id = "ringmod_" .. n,
-                        min = 0, max = 100,
-                        value = w.ring_modulation,
-                        width = 40,
-                        align = "left",
-                        tonumber = function (v)
-                            local r = tonumber(v)
-                            if r > 100 then
-                                r = 100
-                            elseif r < 0 then
-                                r = 0
-                            end
-                            return r
-                        end,
-                        tostring = function (v) return string.format ("%d %%", math.floor (v + 0.5)) end,
-                        notifier = function () vb.views["ringmod_rotary_" .. n].value = vb.views["ringmod_" .. n].value end,
+                        id = "frequency_offset_" .. n,
+                        min = 0,
+                        max = 96000,
+                        value = w.frequency_offset and w.frequency_offset or 0,
+                        width = 60,
+                        align = "right",
+                        tonumber = tonumber,
+                        tostring = function (v) return string.format ("%d Hz", v) end,
                     },
                 },
-
-                vb:row
-                {
-                    visible = not is_modulator,
-                    uniform = true,
-                    margin = 0,
-                    spacing = 0,
-                    vb:text { text = "FM ", font = "bold", align = "right", width = 40, },
-                    vb:vertical_aligner
-                    {
-                        visible = not is_modulator,
-                        margin = 0,
-                        spacing = 0,
-                        mode = "bottom",
-                        vb:minislider
-                        {
-                            id = "freqmod_rotary_" .. n,
-                            min = 0, max = 100,
-                            value = w.frequency_modulation,
-                            width = 70,
-                            --~ height = 30,
-                            notifier = function () vb.views["freqmod_" .. n].value = vb.views["freqmod_rotary_" .. n].value end,
-                        },
-                    },
-                    vb:vertical_aligner
-                    {
-                        visible = not is_modulator,
-                        margin = 0,
-                        spacing = 0,
-                        mode = "center",
-                        vb:valuefield
-                        {
-                            id = "freqmod_" .. n,
-                            min = 0, max = 100,
-                            value = w.frequency_modulation,
-                            width = 40,
-                            align = "left",
-                            tonumber = function (v)
-                                local r = tonumber(v)
-                                if r > 100 then
-                                    r = 100
-                                elseif r < 0 then
-                                    r = 0
-                                end
-                                return r
-                            end,
-                            tostring = function (v) return string.format ("%d %%", math.floor (v + 0.5)) end,
-                            notifier = function () vb.views["freqmod_rotary_" .. n].value = vb.views["freqmod_" .. n].value end,
-                        },
-                    },
-                },
-
             },
+
 
         },
 
@@ -1279,8 +1392,6 @@ function MorphSynthWindow:remove_waveform ()
         vb.views["function_" .. self.nb_waveforms] = nil
         vb.views["length_" .. self.nb_waveforms] = nil
         vb.views["length_slider_" .. self.nb_waveforms] = nil
-        vb.views["amplitude_" .. self.nb_waveforms] = nil
-        vb.views["amplitude_rotary_" .. self.nb_waveforms] = nil
         vb.views["sample_and_hold_" .. self.nb_waveforms] = nil
         vb.views["sample_and_hold_rotary_" .. self.nb_waveforms] = nil
         vb.views["shape_" .. self.nb_waveforms] = nil
@@ -1289,10 +1400,15 @@ function MorphSynthWindow:remove_waveform ()
         vb.views["inverted_" .. self.nb_waveforms] = nil
         vb.views["transpose_" .. self.nb_waveforms] = nil
         vb.views["finetune_" .. self.nb_waveforms] = nil
-        vb.views["ringmod_" .. self.nb_waveforms] = nil
-        vb.views["ringmod_rotary_" .. self.nb_waveforms] = nil
-        vb.views["freqmod_" .. self.nb_waveforms] = nil
-        vb.views["freqmod_rotary_" .. self.nb_waveforms] = nil
+        vb.views["ratio_dividend_" .. self.nb_waveforms] = nil
+        vb.views["ratio_divisor_" .. self.nb_waveforms] = nil
+        vb.views["frequency_offset_" .. self.nb_waveforms] = nil
+        vb.views["amplitude_" .. self.nb_waveforms] = nil
+        vb.views["amplitude_rotary_" .. self.nb_waveforms] = nil
+        vb.views["fm_amount_" .. self.nb_waveforms] = nil
+        vb.views["fm_amount_rotary_" .. self.nb_waveforms] = nil
+        vb.views["rm_amount_" .. self.nb_waveforms] = nil
+        vb.views["rm_amount_rotary_" .. self.nb_waveforms] = nil
 
 end
 

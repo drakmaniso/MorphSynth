@@ -29,4 +29,16 @@ function name_of_renoise_note (note)
 
 end
 
+------------------------------------------------------------------------------------------------------
 
+function to_exp_display (v, max)
+
+    return math.log (9 * (v / max) + 1) / math.log (10)
+
+end
+
+function from_exp_display (v, max)
+
+    return max * (10 ^ v - 1) / 9
+
+end
