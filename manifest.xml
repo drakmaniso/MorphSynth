@@ -2,11 +2,11 @@
 <RenoiseScriptingTool doc_version="0">
   <Name>MorphSynth</Name>
   <Id>org.drakmaniso.Morphsynth</Id>
-  <Version>0.3</Version>
-  <ApiVersion>3</ApiVersion>
+  <Version>0.4</Version>
+  <ApiVersion>4</ApiVersion>
   <Author>drakmaniso | moussault.laurent@gmail.com</Author>
   <AutoUpgraded>false</AutoUpgraded>
-  <Category>Sample Generator</Category>
+  <Category>Sample Generator, Synth, Instrument</Category>
   <Description>Morphing waveforms generator</Description>
   <Homepage>http://tools.renoise.com</Homepage>
   <Platform/>

@@ -12,6 +12,13 @@ function MorphSynth:__init ()
 
     self.instrument = renoise.song().selected_instrument
 
+    if
+        self.instrument.name == ""
+        and #self.instrument.samples == 0
+    then
+        self.instrument.name = "[MorphSynth]"
+    end
+
     local e = self:load_parameters ()
 
     if not e then
@@ -304,7 +311,11 @@ function MorphSynth:generate_one_sample (note, range_start, range_end, voice_ind
         sample.loop_mode = renoise.Sample.LOOP_MODE_OFF
     end
 
-    self.instrument:insert_sample_mapping (renoise.Instrument.LAYER_NOTE_ON, sample_index, note, {range_start, range_end})
+    -- self.instrument:insert_sample_mapping (renoise.Instrument.LAYER_NOTE_ON, sample_index, note, {range_start, range_end})
+    local sample_mapping = self.instrument:sample (sample_index).sample_mapping
+    sample_mapping.layer = renoise.Instrument.LAYER_NOTE_ON
+    sample_mapping.base_note = note
+    sample_mapping.note_range = {range_start, range_end}
     sample.name = "MorphSynth Note " .. name_of_renoise_note (note) .. " Voice " .. voice_index
     sample.volume = voice.volume
     sample.panning = (voice.panning + 50) / 100
@@ -681,6 +692,9 @@ function MorphSynth:save_parameters ()
     name = name .. "},"
 
     self.instrument.samples[index].name = name .. "}"
+    self.instrument.samples[index].volume = 0.0
+    self.instrument.samples[index].sample_mapping.note_range = {0, 0}
+    self.instrument.samples[index].sample_mapping.velocity_range = {0, 0}
 
 end
 

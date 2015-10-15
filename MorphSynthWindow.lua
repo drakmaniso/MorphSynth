@@ -901,12 +901,16 @@ function MorphSynthWindow:add_duration (d)
                         return r
                     end,
                     tostring = function (v)
-                        if vb.views["duration_unit_" .. n].value == 1 then
-                            return tostring(math.floor(v))
-                        elseif vb.views["duration_unit_" .. n].value == 2 then
-                            return tostring(math.floor(v)/100)
+                        if vb.views["duration_unit_" .. n] and vb.views["duration_unit_" .. n].value then
+                            if vb.views["duration_unit_" .. n].value == 1 then
+                                return tostring(math.floor(v))
+                            elseif vb.views["duration_unit_" .. n].value == 2 then
+                                return tostring(math.floor(v)/100)
+                            else
+                                return tostring(math.floor(v/10))
+                            end
                         else
-                            return tostring(math.floor(v/10))
+                            return "-"
                         end
                     end,
                     notifier = function () vb.views["duration_slider_" .. n].value = vb.views["duration_" .. n].value end,
@@ -991,6 +995,11 @@ function MorphSynthWindow:add_duration (d)
         },
         vb:row { height = 10},
     } )
+
+    -- Trick to refresh displayed value
+    local v = vb.views["duration_" .. n].value
+    vb.views["duration_" .. n].value = 0
+    vb.views["duration_" .. n].value = v
 
 end
 
@@ -1429,5 +1438,3 @@ function MorphSynthWindow:remove_duration ()
 end
 
 ----------------------------------------------------------------------------------------------------
-
-
