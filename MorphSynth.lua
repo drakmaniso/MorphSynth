@@ -125,6 +125,9 @@ function MorphSynth:generate_one_sample (note, range_start, range_end, voice_ind
         nb_frames = period
     end
 
+	 -- It seems adding one frame helps reduce "clicks" when looping
+	 nb_frames = nb_frames + 1
+
     local samples = {}
     for i = 1, nb_frames do
         samples[i] = 0
@@ -442,8 +445,8 @@ function MorphSynth:initialize_parameters ()
     self.sample_rate = 44100
     self.bit_depth = 16
 
-    self.first_note = 48
-    self.last_note = 48
+    self.first_note = 0
+    self.last_note = 0
     self.keyzones_step = 3
 
     self.voices = { {}, {}, {}, {}, {}, {}, {}, {}, }
